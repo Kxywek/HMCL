@@ -17,15 +17,9 @@
  */
 package org.jackhuang.hmcl.ui.account;
 
+import com.jfoenix.controls.JFXButton;
 import javafx.beans.binding.Bindings;
-import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.ListProperty;
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.beans.property.ReadOnlyObjectWrapper;
-import javafx.beans.property.SimpleBooleanProperty;
-import javafx.beans.property.SimpleListProperty;
-import javafx.beans.value.ChangeListener;
+import javafx.beans.property.*;
 import javafx.beans.value.ObservableValue;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -38,6 +32,7 @@ import javafx.scene.layout.VBox;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.authlibinjector.AuthlibInjectorServer;
 import org.jackhuang.hmcl.setting.Accounts;
+import org.jackhuang.hmcl.setting.Theme;
 import org.jackhuang.hmcl.ui.Controllers;
 import org.jackhuang.hmcl.ui.FXUtils;
 import org.jackhuang.hmcl.ui.SVG;
@@ -45,38 +40,24 @@ import org.jackhuang.hmcl.ui.construct.AdvancedListItem;
 import org.jackhuang.hmcl.ui.construct.ClassTitle;
 import org.jackhuang.hmcl.ui.decorator.DecoratorAnimatedPage;
 import org.jackhuang.hmcl.ui.decorator.DecoratorPage;
-import org.jackhuang.hmcl.util.i18n.LocaleUtils;
 import org.jackhuang.hmcl.util.io.NetworkUtils;
 import org.jackhuang.hmcl.util.javafx.BindingMapping;
 import org.jackhuang.hmcl.util.javafx.MappedObservableList;
 
 import java.util.Locale;
 
-import static org.jackhuang.hmcl.setting.ConfigHolder.globalConfig;
+import static org.jackhuang.hmcl.ui.versions.VersionPage.wrap;
+import static org.jackhuang.hmcl.util.logging.Logger.LOG;
 import static org.jackhuang.hmcl.util.i18n.I18n.i18n;
 import static org.jackhuang.hmcl.util.javafx.ExtendedProperties.createSelectedItemPropertyFor;
-import static org.jackhuang.hmcl.util.logging.Logger.LOG;
 
 public final class AccountListPage extends DecoratorAnimatedPage implements DecoratorPage {
     static final BooleanProperty RESTRICTED = new SimpleBooleanProperty(true);
 
-    static {
-        String property = System.getProperty("hmcl.offline.auth.restricted", "auto");
 
-        if ("false".equals(property)
-                || "auto".equals(property) && LocaleUtils.IS_CHINA_MAINLAND
-                || globalConfig().isEnableOfflineAccount())
-            RESTRICTED.set(false);
-        else
-            globalConfig().enableOfflineAccountProperty().addListener(new ChangeListener<Boolean>() {
-                @Override
-                public void changed(ObservableValue<? extends Boolean> o, Boolean oldValue, Boolean newValue) {
-                    if (newValue) {
-                        globalConfig().enableOfflineAccountProperty().removeListener(this);
-                        RESTRICTED.set(false);
-                    }
-                }
-            });
+    static {
+        // Always allow offline accounts - removed restriction
+        RESTRICTED.set(false);
     }
 
     private final ObservableList<AccountListItem> items;
@@ -115,7 +96,6 @@ public final class AccountListPage extends DecoratorAnimatedPage implements Deco
     private static class AccountListPageSkin extends DecoratorAnimatedPageSkin<AccountListPage> {
 
         private final ObservableList<AdvancedListItem> authServerItems;
-        private ChangeListener<Boolean> holder;
 
         public AccountListPageSkin(AccountListPage skinnable) {
             super(skinnable);
@@ -128,25 +108,35 @@ public final class AccountListPage extends DecoratorAnimatedPage implements Deco
 
                     AdvancedListItem microsoftItem = new AdvancedListItem();
                     microsoftItem.getStyleClass().add("navigation-drawer-item");
+                    microsoftItem.setActionButtonVisible(false);
                     microsoftItem.setTitle(i18n("account.methods.microsoft"));
-                    microsoftItem.setLeftIcon(SVG.MICROSOFT);
-                    microsoftItem.setOnAction(e -> Controllers.dialog(new MicrosoftAccountLoginPane()));
+                    microsoftItem.setLeftGraphic(wrap(SVG.MICROSOFT));
+                    microsoftItem.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT)));
 
                     AdvancedListItem offlineItem = new AdvancedListItem();
                     offlineItem.getStyleClass().add("navigation-drawer-item");
+                    offlineItem.setActionButtonVisible(false);
                     offlineItem.setTitle(i18n("account.methods.offline"));
-                    offlineItem.setLeftIcon(SVG.PERSON);
+                    offlineItem.setLeftGraphic(wrap(SVG.PERSON));
                     offlineItem.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_OFFLINE)));
 
                     VBox boxAuthServers = new VBox();
                     authServerItems = MappedObservableList.create(skinnable.authServersProperty(), server -> {
                         AdvancedListItem item = new AdvancedListItem();
                         item.getStyleClass().add("navigation-drawer-item");
-                        item.setLeftIcon(SVG.DRESSER);
+                        item.setLeftGraphic(wrap(SVG.DRESSER));
                         item.setOnAction(e -> Controllers.dialog(new CreateAccountPane(server)));
-                        item.setRightAction(SVG.CLOSE, () -> Controllers.confirm(i18n("button.remove.confirm"), i18n("button.remove"), () -> {
-                            skinnable.authServersProperty().remove(server);
-                        }, null));
+
+                        JFXButton btnRemove = new JFXButton();
+                        btnRemove.setOnAction(e -> {
+                            Controllers.confirm(i18n("button.remove.confirm"), i18n("button.remove"), () -> {
+                                skinnable.authServersProperty().remove(server);
+                            }, null);
+                            e.consume();
+                        });
+                        btnRemove.getStyleClass().add("toggle-icon4");
+                        btnRemove.setGraphic(SVG.CLOSE.createIcon(Theme.blackFill(), 14));
+                        item.setRightGraphic(btnRemove);
 
                         ObservableValue<String> title = BindingMapping.of(server, AuthlibInjectorServer::getName);
                         item.titleProperty().bind(title);
@@ -166,27 +156,8 @@ public final class AccountListPage extends DecoratorAnimatedPage implements Deco
                     Bindings.bindContent(boxAuthServers.getChildren(), authServerItems);
 
                     ClassTitle title = new ClassTitle(i18n("account.create").toUpperCase(Locale.ROOT));
-                    if (RESTRICTED.get()) {
-                        VBox wrapper = new VBox(offlineItem, boxAuthServers);
-                        wrapper.setPadding(Insets.EMPTY);
-                        FXUtils.installFastTooltip(wrapper, i18n("account.login.restricted"));
-
-                        offlineItem.setDisable(true);
-                        boxAuthServers.setDisable(true);
-
-                        boxMethods.getChildren().setAll(title, microsoftItem, wrapper);
-
-                        holder = FXUtils.onWeakChange(RESTRICTED, value -> {
-                            if (!value) {
-                                holder = null;
-                                offlineItem.setDisable(false);
-                                boxAuthServers.setDisable(false);
-                                boxMethods.getChildren().setAll(title, microsoftItem, offlineItem, boxAuthServers);
-                            }
-                        });
-                    } else {
-                        boxMethods.getChildren().setAll(title, microsoftItem, offlineItem, boxAuthServers);
-                    }
+                    // Always show offline and auth server options without restriction
+                    boxMethods.getChildren().setAll(title, microsoftItem, offlineItem, boxAuthServers);
                 }
 
                 AdvancedListItem addAuthServerItem = new AdvancedListItem();
@@ -194,7 +165,8 @@ public final class AccountListPage extends DecoratorAnimatedPage implements Deco
                     addAuthServerItem.getStyleClass().add("navigation-drawer-item");
                     addAuthServerItem.setTitle(i18n("account.injector.add"));
                     addAuthServerItem.setSubtitle(i18n("account.methods.authlib_injector"));
-                    addAuthServerItem.setLeftIcon(SVG.ADD_CIRCLE);
+                    addAuthServerItem.setActionButtonVisible(false);
+                    addAuthServerItem.setLeftGraphic(wrap(SVG.ADD_CIRCLE));
                     addAuthServerItem.setOnAction(e -> Controllers.dialog(new AddAuthlibInjectorServerPane()));
                     VBox.setMargin(addAuthServerItem, new Insets(0, 0, 12, 0));
                 }
