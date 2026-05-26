@@ -1,0 +1,33 @@
+name: Build HMCL
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Grant gradlew permission
+        run: chmod +x gradlew
+
+      - name: Build
+        run: ./gradlew shadowJar
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: HMCL
+          path: |
+            HMCL/build/libs/*.jar
+            build/libs/*.jar
